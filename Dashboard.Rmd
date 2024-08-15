@@ -1,0 +1,664 @@
+---
+title: "Home of Coffee"
+author: "Group 10"
+date: "Data Visualization"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    theme: united
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(flexdashboard)
+## Import Needed Packages
+library(flexdashboard) 
+library(highcharter) 
+library(plotly) 
+library(viridis) 
+library(tidyverse)
+library(countrycode) 
+library(rjson) 
+library(crosstalk) 
+library(DT)
+library(dplyr)
+library(jpeg)
+library(ggmap)
+library(knitr)
+library(shiny)
+library(leaflet)
+library(kableExtra)
+```
+
+```{r eval=F}
+# this part of code will not be executed
+
+# if you can not find the library, run codes in this trunk.
+install.packages(c("ggplot2", "flexdashboard", "highcharter", "plotly", "viridis", "tidyverse", "countrycode", "rjson", "crosstalk", "DT", "jpeg", "ggmap", "knitr", "shiny", "leaflet", "kableExtra", "ggthemes"))
+
+```
+
+```{r}
+# data preprocessing
+
+library(ggplot2)
+library(tidyverse)
+# library(plotly)
+
+
+
+## Import the Data Needed in this project  
+data <- read_csv("coffee.csv")
+
+## Data preprocessing
+### Rename the columns of the data
+colnames(data) <- c("Country", "Region", "Min_Altitude", "Max_Altitude", "Avg_Altitude", 
+                    "Year", "Owner", "Species", "Variety", "Processing_method", "Number_of_bags", "Bag_weight",
+                    "Aroma_Scores", "Flavor_Scores", "Aftertaste_Scores", "Acidity_Scores", "Body_Scores", "Balance_Scores",
+                    "Uniformity_Scores", "Sweetness_Scores", "Moisture_Scores", "Total_Scores", "Color")
+
+### Remove the missing value
+del1 <- which(data$Region=="nan")
+data_del1 <- data[-del1,]
+del2 <- which(data_del1$Owner=="nan")
+data_del2 <- data_del1[-del2,]
+del3 <- which(data_del2$Variety=="nan")
+data_del3 <- data_del2[-del3,]
+del4 <- which(data_del3$Processing_method=="nan")
+data_del4 <- data_del3[-del4,]
+del5 <- which(data_del4$Color=="None")
+data_cleaned <- data_del4[-del5,]
+
+### Some data here are also unreasonable, like altitude about 100000, after searching information, we know that the suitable altiitude for growing coffee is around 1000~2000, so here we need to remove those unnormal data in column 'Avg_Altitude'.
+### Here I will remove all the altitude more than 5000
+data_cleaned <- data_cleaned[data_cleaned$Avg_Altitude <= 5000, ]
+
+### After removing all the missing values, there are 796 instances remaining
+### Set the type of qualitative variable as "Character" for easily visualizing
+data_cleaned <- data_cleaned %>%
+  mutate(Country = as.character(Country), 
+         Region = as.character(Region),
+         Owner = as.character(Owner),
+         Species = as.character(Species), 
+         Variety = as.character(Variety),
+         Processing_method = as.character(Processing_method),
+         Color = as.character(Color))
+
+### In order to give audience direct recommendation of coffee, here create a new column according to the total scores called rating, 1-5, 5 means the most recommended coffee]
+data_cleaned <- data_cleaned %>%
+  mutate(Rating = case_when(
+    Total_Scores < 65 ~ 1,
+    Total_Scores >= 65 & Total_Scores < 70 ~ 2,
+    Total_Scores >= 70 & Total_Scores < 80 ~ 3,
+    Total_Scores >= 80 & Total_Scores < 85 ~ 4,
+    Total_Scores >= 85 ~ 5
+  ))
+
+# Extract column names for filtering the variables later
+valnames <- c("Aroma", "Flavor", "Aftertaste", "Acidity", "Body", "Balance",
+              "Uniformity", "Sweetness", "Moisture", "Total")
+valvars  <- c("Aroma_Scores", "Flavor_Scores", "Aftertaste_Scores", "Acidity_Scores", "Body_Scores", "Balance_Scores","Uniformity_Scores", "Sweetness_Scores", "Moisture_Scores", "Total_Scores")
+names(valvars) <- valnames
+
+colvars <- c("Year", "Species", "Variety", "Processing_method", "Color","Rating")
+colnames <- c("Year", "Species", "Variety", "Processing Methods", "Color","Rating")
+names(colvars) <- colnames
+# Fix the names of some of the countries in our data to match the country names 
+# used by our map later on so that they'll be interpreted and displayed. 
+data_cleaned <- data_cleaned %>%
+  mutate(Country = fct_recode(Country, "Tanzania, United Republic Of" = "Tanzania"),
+         Country = fct_recode(Country, "Papua New Guinea" = "The Independent State of Papua New Guinea"),
+         Country = fct_recode(Country, "Costa Rica" = "The Republic of Costa Rica"),
+         Country = fct_recode(Country, "El Salvador" = "The Republic of El Salvador"),
+         Country = fct_recode(Country, "Cote d?Ivoire" = "The Republic of Cote d'ivoire"),
+         Country = fct_recode(Country, "United States of America" = "United States"))
+
+```
+
+```{r}
+library(countrycode)
+# Create new column in our data for continent. Use countrycode() to extract continents from country names.
+data_cleaned$continent <- countrycode(sourcevar = data_cleaned$Country,
+                              origin = "country.name",
+                              destination = "continent")
+
+# Reclassify countries that have been coded as 'Americas', by countrycode(), into 'North America' and 'South America'. 
+south_america <- c('Brazil', 'Panama', 'Colombia', 'Costa Rica', 'Peru')
+
+data_cleaned$continent[data_cleaned$Country %in% south_america] <- 'South America'
+data_cleaned$continent[data_cleaned$continent=='Americas'] <- 'North America'
+```
+
+# PAGE 0 {.sidebar}
+
+Coffee Symphony: Exploring Bean Diversity and Quality Harmony
+
+Group Member:
+
+2030026036 Ziao FENG (Auberon)
+
+2030026047 Beier HE (Bella)
+
+2030026075 Wenhao LI (Viho)
+
+2030026100 Jingxi LU (Blair)
+
+```{r}
+
+```
+
+# Variety Info
+
+## Row
+
+### Number of Different Coffee Varieties
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+variety_count <- data_cleaned %>%
+  group_by(Variety) %>%
+  summarise(count = n()) %>%
+  mutate(count_variety = count)
+
+# Expanded colors vector with additional colors
+colors_vector <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                   "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+                   "#aec7e8", "#ffbb78", "#00CED1", "#c5b0d5",
+                   "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+                   "#add8e6", "#90ee90", "#ffb6c1", "#ffffe0", "#dda0dd",
+                   "#afeeee", "#f0e68c", "#f08080", "#4682b4")  # Add more colors here
+
+# Creating a bar plot and flipping coordinates to mimic a funnel chart
+gg <- ggplot(variety_count, aes(x = reorder(Variety, count_variety), y = count_variety, fill = Variety)) +
+  geom_bar(stat = "identity") +
+  coord_flip() + 
+  scale_fill_manual(values = colors_vector) +
+  labs(title = "Number of Different Coffee Varieties",
+       x = "Variety",
+       y = "Count") +
+  theme_minimal()
+
+# Convert ggplot to an interactive plot using plotly
+
+ggplotly(gg, tooltip = c("x", "y", "fill"))
+```
+
+## Row
+
+### Coffee Output by Year and Variety
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+
+# Define the color list
+color_list <- c(
+  "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+  "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+  "#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e",
+  "#e6ab02", "#a6761d", "#666666", "#a6cee3", "#1f78b4",
+  "#b2df8a", "#33a02c", "#fb9a99", "#fdbf6f", "#ff7f00",
+  "#cab2d6", "#6a3d9a"
+)
+
+
+gg <- ggplot(data_cleaned, aes(x = Year, y = Number_of_bags, fill = Variety)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = color_list) +
+  labs(title = "Coffee Output by Year and Variety",
+       subtitle = "2011 - 2018",
+       x = "Year",
+       y = "Amount of Bags") +
+  theme_minimal()
+
+ggplotly(gg, tooltip = c("x", "y", "fill"))
+```
+
+# Color Info
+
+This page shows the color info about colors.
+
+```{r}
+
+```
+
+### Quantity and Weight
+
+```{r include=FALSE}
+# Fix the names of some of the countries in our data to match the country names 
+# used by our map later on so that they'll be interpreted and displayed. 
+data_cleaned <- data_cleaned %>%
+  mutate(Country = fct_recode(Country, "Tanzania, United Republic Of" = "Tanzania"),
+         Country = fct_recode(Country, "Papua New Guinea" = "The Independent State of Papua New Guinea"),
+         Country = fct_recode(Country, "Costa Rica" = "The Republic of Costa Rica"),
+         Country = fct_recode(Country, "El Salvador" = "The Republic of El Salvador"),
+         Country = fct_recode(Country, "Cote d?Ivoire" = "The Republic of Cote d'ivoire"),
+         Country = fct_recode(Country, "United States of America" = "United States"))
+
+# Create new column in our data for continent. Use countrycode() to extract continents from country names.
+data_cleaned$continent <- countrycode(sourcevar = data_cleaned$Country,
+                              origin = "country.name",
+                              destination = "continent")
+
+# Reclassify countries that have been coded as 'Americas', by countrycode(), into 'North America' and 'South America'. 
+south_america <- c('Brazil', 'Panama', 'Colombia', 'Costa Rica', 'Peru')
+
+data_cleaned$continent[data_cleaned$Country %in% south_america] <- 'South America'
+data_cleaned$continent[data_cleaned$continent=='Americas'] <- 'North America'
+```
+
+```{r}
+color_list <- c("#ff7f0e", "#66a61e", "#d62728", "#1f78b4")
+
+p <- ggplot(data_cleaned, aes(x = Number_of_bags, y = Bag_weight, color = Color)) +
+  geom_point(alpha = 0.8) +
+  scale_color_manual(values = color_list)  +
+  theme_minimal()
+
+p <- ggplotly(p, tooltip = "all", dynamicTicks = TRUE) %>%
+  layout(
+    title = list(text = "Quantity and Weight of Coffee by Color", font = list(size = 18, family = "Arial")),
+    xaxis = list(title = "Number of Bags tested", titlefont = list(size = 12, family = "Arial"), tickfont = list(size = 10, family = "Arial")),
+    yaxis = list(title = "Bag Weight tested", titlefont = list(size = 12, family = "Arial"), tickfont = list(size = 10, family = "Arial")),
+    plot_bgcolor = "rgba(0, 0, 0, 0)",   # Set the plot background color to transparent
+    paper_bgcolor = "rgba(0, 0, 0, 0)"   # Set the paper background color to transparent
+  )
+
+p
+```
+
+### Color distribution
+
+```{r}
+# Create a tibble of coffees by color
+color_proportions <- data_cleaned %>%
+  group_by(Color) %>%
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count))
+
+# Custom colors for the pie chart
+custom_colors <- c("#00FFFF", "#00CED1", "green", "grey")
+
+# Create a pie chart using ggplot2
+p <- ggplot(color_proportions, aes(x = "", y = prop, fill = Color, label = scales::percent(prop))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = ifelse(prop > 0.03, scales::percent(prop), "")), position = position_stack(vjust = 0.5)) +
+  coord_polar("y") +
+  scale_fill_manual(values = custom_colors) +
+  theme_void() +
+  labs(
+    title = "Worldwide Coffees by Color",
+    subtitle = "2011 - 2018"
+  ) +
+  theme(legend.position = "bottom") +
+  guides(fill = guide_legend(title = "Color"))
+
+p
+
+```
+
+# Bar Chart {data-navmenu="Continent"}
+
+### Number of Coffee Rating 5 by Continent - Bar Chart
+
+This is showing the coffee rating of 5 that on each continent using Bar chart.
+
+```{r}
+library(ggplot2)
+# install.packages("ggthemes")
+library(ggthemes)
+library(tidyverse)
+
+# Calculate the number of coffee ratings equal to 5 for each continent
+continent_tibble <- data_cleaned %>%
+  group_by(continent) %>%
+  summarize(number_of_ratings_5 = sum(Rating == 5, na.rm = TRUE)) %>%
+  arrange(continent)
+
+# Download continent map.
+map_data <- map_data("world2")
+
+ggplot(continent_tibble, aes(x = continent, y = number_of_ratings_5, fill = continent)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(length(unique(continent_tibble$continent)), "Blues")) +
+  labs(title = "Number of Coffee Rating 5 by Continent", subtitle = "2011 - 2018",
+       x = "Continent", y = "Number of Ratings 5") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+# Map Chart {data-navmenu="Continent"}
+
+### Number of Coffee Rating 5 by Continent - Map Chart
+
+This is showing the coffee rating of 5 that on each continent using a map.
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(tidyverse)
+
+# Calculate the number of coffee ratings equal to 5 for each continent
+continent_tibble <- data_cleaned %>%
+  group_by(continent) %>%
+  summarize(number_of_ratings_5 = sum(Rating == 5, na.rm = TRUE)) %>%
+  arrange(continent)
+
+# Download continent map.
+map_data <- map_data("world")
+
+
+# Merge the map data and rating data by continent
+merged_data <- merge(map_data, continent_tibble, by.x = "region", by.y = "continent", all.x = TRUE)
+
+# Replace missing number_of_ratings_5 values with 0
+merged_data$number_of_ratings_5[is.na(merged_data$number_of_ratings_5)] <- continent_tibble$number_of_ratings_5
+
+# Create a map plot using ggplot
+ggplot(merged_data, aes(x = long, y = lat, group = group, fill = number_of_ratings_5)) +
+  geom_polygon(color = "black") +
+  scale_fill_viridis_c(name = "Number of Ratings 5", 
+                       breaks = continent_tibble$number_of_ratings_5,  # Set the breaks to the specified values
+                       labels = continent_tibble$number_of_ratings_5,  # Set the labels to the specified values
+                       guide = guide_legend(title = "Number of Ratings 5", reverse = TRUE)) +  # Customize the legend guide
+  labs(title = "Number of Coffee Rating 5 by Continent", subtitle = "2011 - 2018") +
+  theme_map()
+
+```
+
+# Map Interactive {data-navmenu="Continent"}
+
+### Number of Coffee Rating 5 by Continent - Map Interactive
+
+This is showing the coffee rating of 5 that on each continent using a interactive map.
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(tidyverse)
+
+# Calculate the number of coffee ratings equal to 5 for each continent
+continent_tibble <- data_cleaned %>%
+  group_by(continent) %>%
+  summarize(number_of_ratings_5 = sum(Rating == 5, na.rm = TRUE)) %>%
+  arrange(continent)
+
+# Download continent map.
+map_data <- map_data("world")
+
+
+# Merge the map data and rating data by continent
+merged_data <- merge(map_data, continent_tibble, by.x = "region", by.y = "continent", all.x = TRUE)
+
+# Replace missing number_of_ratings_5 values with 0
+merged_data$number_of_ratings_5[is.na(merged_data$number_of_ratings_5)] <- continent_tibble$number_of_ratings_5
+
+ggplot(merged_data, aes(x = long, y = lat, group = group, fill = number_of_ratings_5)) +
+  geom_polygon(color = "black") +
+  scale_fill_gradientn(
+    name = "Number of Ratings 5",
+    colours = c("#f7fbff", "#08519c"),  # Customize the colors of the gradient
+    breaks = continent_tibble$number_of_ratings_5,
+    labels = continent_tibble$number_of_ratings_5,
+    guide = guide_legend(title = "Number of Ratings 5", reverse = TRUE)
+  ) +
+  labs(title = "Number of Coffee Rating 5 by Continent", subtitle = "2011 - 2018") +
+  theme_map() +
+  theme(
+    panel.background = element_blank(),  # Remove background color
+    panel.border = element_blank(),  # Remove border around the map
+    plot.title = element_text(size = 20),  # Increase title size
+    plot.subtitle = element_text(size = 16),  # Increase subtitle size
+    legend.title = element_text(size = 14),  # Increase legend title size
+    legend.text = element_text(size = 12)  # Increase legend text size
+  )
+```
+
+# Altitude Info
+
+## Row 1 {data-height="300"}
+
+### Year and Species
+
+```{r,fig.width=8, fig.height=5}
+
+data_grouped <- data_cleaned %>%
+  group_by(Avg_Altitude) %>%
+  summarize(Count = n())
+
+ggplotly(
+  ggplot(data_grouped, aes(x = Count, y = Avg_Altitude)) +
+    geom_col(position = position_dodge()) +
+    labs(title = "The Average Altitude of Coffee distribution",
+         y = "Average altitude in different coffees",
+         x = "Count") +
+    theme(axis.text.x = element_text(hjust = 0, vjust = 1, size = 10, family = "Arial"),
+          axis.text.y = element_text(size = 10, family = "Arial"),
+          plot.title = element_text(size = 18, family = "Arial"),
+          plot.subtitle = element_text(size = 13, family = "Arial"),
+          axis.title.y = element_text(size = 12, family = "Arial"),
+          legend.position = "bottom") +
+    scale_x_continuous(limits = c(0, 23), breaks = seq(0, 23, by = 1))
+)
+
+```
+
+## Row 2 {data-height="300"}
+
+### Processing Method
+
+```{r}
+
+filtered_data <- data_cleaned %>%
+  filter(Rating == 5)
+
+# Create a ggplot object with increased transparency (alpha)
+color_order <- c("#4CAF50", "#FF5722","#9C27B0")
+scatter_plot_all <- ggplot(filtered_data, aes(x = Avg_Altitude, y = Total_Scores, color = Processing_method)) +
+  geom_point(size=3,alpha = 0.7) +
+  scale_color_manual(values = color_order) +
+  labs(title = "Scatter Plot of Total_Scores vs Altitude and Processing Method")
+
+# Convert ggplot to plotly
+interactive_scatter_plot <- ggplotly(scatter_plot_all)
+
+# Display the interactive plot
+interactive_scatter_plot
+
+
+
+```
+
+# Worldwide Info
+
+## Row
+
+### Processing methods
+
+```{r}
+# processing
+processing_proportions <- data_cleaned %>%
+  group_by(Processing_method) %>%
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count))
+
+# create
+interactive_pie_chart <- plot_ly(processing_proportions, labels = ~Processing_method, values = ~prop, type = "pie",marker = list(colors = c("#4CAF50", "#FFC107", "#2196F3", "#FF5722", "#9C27B0"))) %>%
+  layout(title = "Worldwide Coffees by Processing Methods",
+         subtitle = "2011 - 2018",
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+# show
+interactive_pie_chart
+```
+
+# Country Scores {.storyboard}
+
+```{r}
+
+
+```
+
+This page shows Average coffee scores by country.
+
+### Average coffee scores by country - rainbow
+
+```{r}
+average_scores_by_country <- data_cleaned %>%
+  group_by(Country) %>%
+  summarize(Average_Total_Scores = mean(Total_Scores, na.rm = TRUE))
+
+ggplot(average_scores_by_country, aes(x = Country, y = Average_Total_Scores, fill = Country)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average coffee scores by Country", subtitle = "2011 - 2018", 
+       x = "Country", y = "Average Coffee Scores") +
+  theme_minimal()
+```
+
+------------------------------------------------------------------------
+
+Average coffee scores by country, rainbow theme
+
+### Average coffee scores by country - rainbow, flip
+
+```{r}
+ggplot(average_scores_by_country, aes(x = reorder(Country, Average_Total_Scores), y = Average_Total_Scores, fill = Country)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average coffee scores by Country", subtitle = "2011 - 2018", 
+       x = "Country", y = "Average Coffee Scores") +
+  theme_minimal() +
+  coord_flip()
+```
+
+------------------------------------------------------------------------
+
+Average coffee scores by country, rainbow theme, showing each country name
+
+### Average coffee scores by country - rainbow, flip, figure
+
+```{r}
+ggplot(average_scores_by_country, aes(x = reorder(Country, Average_Total_Scores), y = Average_Total_Scores, fill = Country)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.2f", Average_Total_Scores)), vjust = -0.5, size = 3.5) +
+  labs(title = "Average coffee scores by Country", subtitle = "2011 - 2018", 
+       x = "Country", y = "Average Coffee Scores") +
+  theme_minimal() +
+  coord_flip()
+```
+
+------------------------------------------------------------------------
+
+Average coffee scores by country, rainbow theme, showing each country name and the exact figures.
+
+### Average coffee scores by country - blues, interactive
+
+```{r}
+library(plotly)
+
+average_scores_by_country <- average_scores_by_country %>%
+  arrange(Average_Total_Scores)  # Reorder the data frame
+
+# Create an interactive bar plot using plot_ly
+plot_ly(average_scores_by_country, x = ~reorder(Country, Average_Total_Scores), y = ~Average_Total_Scores, type = "bar", 
+        color = ~Country, colors = "Blues",
+        text = ~paste("Country: ", Country, "<br>Average Coffee Scores: ", Average_Total_Scores)) %>%
+  layout(title = "Average coffee scores by Country", xaxis = list(title = "Country"), yaxis = list(title = "Average Coffee Scores"))
+```
+
+------------------------------------------------------------------------
+
+Average coffee scores by country, blue theme, showing information interactively.
+
+### Average coffee scores by country - blues, interactive, flip
+
+```{r}
+average_scores_by_country <- average_scores_by_country %>%
+  arrange(Average_Total_Scores)  # Reorder the data frame
+
+# Create an interactive bar plot using plot_ly
+plot_ly(average_scores_by_country, x = ~Average_Total_Scores, y = ~reorder(Country, Average_Total_Scores), type = "bar", 
+        color = ~Country, colors = "Blues",
+        text = ~paste("Country: ", Country, "<br>Average Coffee Scores: ", Average_Total_Scores)) %>%
+  layout(title = "Average coffee scores by Country", xaxis = list(title = "Country"), yaxis = list(title = "Average Coffee Scores"))
+```
+
+------------------------------------------------------------------------
+
+Average coffee scores by country, blue theme, showing information interactively and with fliped axis.
+
+# Ratings Info
+
+## Row 1
+
+### The number of Ratings by Color
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+rating_counts_by_species_color <- data_cleaned %>%
+  group_by(Species, Color) %>%
+  summarize(Count = n())
+
+ggplot(rating_counts_by_species_color, aes(x = Species, y = Count, fill = Color)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "The number of Ratings by Color and Species", x = "Species", y = "") +
+  theme(plot.title = element_text(size = 18, face = "bold", family = "Arial"),
+        legend.position = "right",
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"))
+  
+
+```
+
+### The number of Ratings by Species
+
+```{r}
+ggplot(rating_counts_by_species_color, aes(x = Color, y = Count, fill = Species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Color", y = "") +
+  theme(legend.position = "right",
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"))
+```
+
+## Row 2
+
+### The number of Ratings by Color and Species
+
+```{r}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+
+rating_counts_by_species_color <- data_cleaned %>%
+  group_by(Species, Color) %>%
+  summarize(Count = n())
+
+plot1 <- ggplot(rating_counts_by_species_color, aes(x = Species, y = Count, fill = Color)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "The number of Ratings by Color and Species", x = "Species", y = "") +
+  theme(plot.title = element_text(size = 18, face = "bold", family = "Arial"),
+        legend.position = "right",
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"))
+
+plot2 <- ggplot(rating_counts_by_species_color, aes(x = Color, y = Count, fill = Species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Color", y = "") +
+  theme(legend.position = "right",
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"))
+
+# Convert to plotly objects
+plotly1 <- ggplotly(plot1)
+plotly2 <- ggplotly(plot2)
+plotly1
+plotly2
+```
+
+Merged Plot
